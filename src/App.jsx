@@ -279,35 +279,45 @@ export default function App() {
     setTouchStart(null);
   };
 
-  // Initialize month - copy budget from previous month if available
-  useEffect(() => {
-    if (!loading && !monthlyData[monthKey]) {
-      // Find the most recent previous month with data
-      const sortedMonths = Object.keys(monthlyData).sort().reverse();
-      const previousMonth = sortedMonths.find(m => m < monthKey);
-      
-      if (previousMonth && monthlyData[previousMonth]) {
-        // Copy categories and income from previous month, but zero out transactions
-        const prevData = monthlyData[previousMonth];
-        const newMonthData = {
-          income: prevData.income ? prevData.income.map(inc => ({ ...inc, id: Date.now() + Math.random() })) : [],
-          categories: prevData.categories ? prevData.categories.map(cat => ({
-            ...cat,
-            id: Date.now() + Math.random(),
-            items: cat.items ? cat.items.map(item => ({
-              ...item,
-              id: Date.now() + Math.random() + Math.random()
-            })) : []
-          })) : [],
-          transactions: [] // Fresh start for transactions
-        };
-        setMonthlyData(prev => ({ ...prev, [monthKey]: newMonthData }));
-      } else {
-        // No previous month, use defaults
-        setMonthlyData(prev => ({ ...prev, [monthKey]: generateDefaultData(monthKey) }));
-      }
+  // Check if current month needs to be created
+  const needsMonthSetup = !loading && !monthlyData[monthKey];
+  
+  // Find previous month for copying
+  const previousMonthData = useMemo(() => {
+    if (!needsMonthSetup) return null;
+    const sortedMonths = Object.keys(monthlyData).sort().reverse();
+    const previousMonth = sortedMonths.find(m => m < monthKey);
+    if (previousMonth && monthlyData[previousMonth]) {
+      const prevDate = new Date(previousMonth + '-01');
+      return {
+        key: previousMonth,
+        name: prevDate.toLocaleDateString('en-US', { month: 'long' }),
+        data: monthlyData[previousMonth]
+      };
     }
-  }, [monthKey, loading, monthlyData]);
+    return null;
+  }, [needsMonthSetup, monthlyData, monthKey]);
+
+  const createMonthBudget = (copyFromPrevious = true) => {
+    if (copyFromPrevious && previousMonthData) {
+      const prevData = previousMonthData.data;
+      const newMonthData = {
+        income: prevData.income ? prevData.income.map(inc => ({ ...inc, id: Date.now() + Math.random() })) : [],
+        categories: prevData.categories ? prevData.categories.map(cat => ({
+          ...cat,
+          id: Date.now() + Math.random(),
+          items: cat.items ? cat.items.map(item => ({
+            ...item,
+            id: Date.now() + Math.random() + Math.random()
+          })) : []
+        })) : [],
+        transactions: []
+      };
+      setMonthlyData(prev => ({ ...prev, [monthKey]: newMonthData }));
+    } else {
+      setMonthlyData(prev => ({ ...prev, [monthKey]: { income: [], categories: [], transactions: [] } }));
+    }
+  };
 
   useEffect(() => {
     if (currentData.categories?.length > 0 && Object.keys(expandedCats).length === 0) {
@@ -1002,6 +1012,69 @@ export default function App() {
         <div className="text-center">
           <Loader2 className="w-10 h-10 animate-spin text-emerald-500 mx-auto mb-4" />
           <p className={theme.textMuted}>Loading your budget...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Month setup screen
+  if (needsMonthSetup) {
+    const currentMonthName = currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    return (
+      <div className={`min-h-screen ${theme.bg} ${theme.text}`}>
+        <div className="bg-gradient-to-br from-emerald-500 to-teal-500 text-white p-4">
+          <div className="flex items-center justify-between">
+            <h1 className="text-xl font-bold">{currentMonthName}</h1>
+          </div>
+        </div>
+        
+        <div className="flex flex-col items-center justify-center px-6 py-16">
+          <div className="w-32 h-32 bg-gray-100 rounded-full flex items-center justify-center mb-6">
+            <div className="relative">
+              <div className={`w-16 h-20 ${theme.card} rounded-lg shadow-md flex flex-col p-2 border ${theme.border}`}>
+                <div className={`h-2 w-8 ${darkMode ? 'bg-gray-600' : 'bg-gray-300'} rounded mb-1`}></div>
+                <div className={`h-1 w-10 ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} rounded mb-1`}></div>
+                <div className={`h-1 w-6 ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} rounded`}></div>
+              </div>
+              {previousMonthData && (
+                <div className="absolute -right-4 top-2">
+                  <ChevronRight className="w-6 h-6 text-emerald-500" />
+                </div>
+              )}
+              {previousMonthData && (
+                <div className={`absolute -right-12 top-0 w-16 h-20 ${theme.card} rounded-lg shadow-md flex flex-col p-2 border-2 border-emerald-500`}>
+                  <div className="h-2 w-8 bg-emerald-200 rounded mb-1"></div>
+                  <div className="h-1 w-10 bg-emerald-100 rounded mb-1"></div>
+                  <div className="h-1 w-6 bg-emerald-100 rounded"></div>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <h2 className="text-xl font-bold mb-2 text-center">
+            {previousMonthData ? `Create your ${currentMonth.toLocaleDateString('en-US', { month: 'long' })} budget` : 'Start your budget'}
+          </h2>
+          <p className={`${theme.textMuted} text-center mb-8`}>
+            {previousMonthData 
+              ? `We'll copy your ${previousMonthData.name} budget to get you started.`
+              : 'Create your first budget to start tracking expenses.'}
+          </p>
+          
+          <button 
+            onClick={() => createMonthBudget(!!previousMonthData)}
+            className="w-full max-w-xs bg-emerald-500 text-white py-4 rounded-2xl font-semibold text-lg shadow-lg hover:bg-emerald-600 transition-colors"
+          >
+            {previousMonthData ? `Create ${currentMonth.toLocaleDateString('en-US', { month: 'long' })} Budget` : 'Create Budget'}
+          </button>
+          
+          {previousMonthData && (
+            <button 
+              onClick={() => createMonthBudget(false)}
+              className={`mt-4 ${theme.textMuted} text-sm underline`}
+            >
+              Start fresh instead
+            </button>
+          )}
         </div>
       </div>
     );
