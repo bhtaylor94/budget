@@ -206,6 +206,8 @@ export default function App() {
   const [aiLoading, setAiLoading] = useState(false);
   const [showReminders, setShowReminders] = useState(false);
   const [customReminders, setCustomReminders] = useState([]);
+  const [pastItemNames, setPastItemNames] = useState([]);
+  const [touchStart, setTouchStart] = useState(null);
   
   const [viewingItem, setViewingItem] = useState(null);
   const [viewingGoal, setViewingGoal] = useState(null);
@@ -220,6 +222,7 @@ export default function App() {
       const savedGoals = await storage.get('budget-pro-goals-v2');
       const savedDarkMode = await storage.get('budget-pro-dark-v2');
       const savedReminders = await storage.get('budget-pro-reminders-v2');
+      const savedItemNames = await storage.get('budget-pro-itemnames-v2');
       
       if (saved) {
         setMonthlyData(saved);
@@ -231,6 +234,7 @@ export default function App() {
       setGoals(savedGoals || generateDefaultData('2026-01').goals);
       setDarkMode(savedDarkMode || false);
       setCustomReminders(savedReminders || []);
+      setPastItemNames(savedItemNames || []);
       setLoading(false);
     };
     loadData();
@@ -248,8 +252,32 @@ export default function App() {
       storage.set('budget-pro-goals-v2', goals);
       storage.set('budget-pro-dark-v2', darkMode);
       storage.set('budget-pro-reminders-v2', customReminders);
+      storage.set('budget-pro-itemnames-v2', pastItemNames);
     }
-  }, [goals, darkMode, customReminders, loading]);
+  }, [goals, darkMode, customReminders, pastItemNames, loading]);
+
+  // Swipe back gesture handler
+  const handleTouchStart = (e) => {
+    setTouchStart(e.touches[0].clientX);
+  };
+  
+  const handleTouchEnd = (e) => {
+    if (!touchStart) return;
+    const touchEnd = e.changedTouches[0].clientX;
+    const diff = touchEnd - touchStart;
+    
+    // Swipe right from left edge to go back
+    if (diff > 100 && touchStart < 50) {
+      if (viewingItem) {
+        setViewingItem(null);
+      } else if (viewingGoal) {
+        setViewingGoal(null);
+      } else if (showAI) {
+        setShowAI(false);
+      }
+    }
+    setTouchStart(null);
+  };
 
   // Initialize month
   useEffect(() => {
@@ -276,13 +304,17 @@ export default function App() {
     const spent = currentData.categories?.reduce((s, c) => 
       s + (c.items?.reduce((a, i) => a + getItemSpent(i.id), 0) || 0), 0) || 0;
     
+    // Calculate today's spending
+    const today = new Date().toISOString().split('T')[0];
+    const spentToday = currentData.transactions?.filter(t => t.date === today).reduce((s, t) => s + t.amount, 0) || 0;
+    
     const remaining = income - planned;
     const leftToSpend = planned - spent;
     const daysLeft = getDaysRemaining(currentMonth);
     const dailyBudget = daysLeft > 0 ? leftToSpend / daysLeft : 0;
     const spentPercent = planned > 0 ? (spent / planned) * 100 : 0;
     
-    return { income, planned, spent, remaining, leftToSpend, daysLeft, dailyBudget, spentPercent, getItemSpent };
+    return { income, planned, spent, remaining, leftToSpend, daysLeft, dailyBudget, spentPercent, spentToday, getItemSpent };
   }, [currentData, currentMonth]);
 
   // Upcoming bills - finds recurring items with due dates that haven't been paid
@@ -329,12 +361,20 @@ export default function App() {
       icon: cat.icon
     })).filter(c => c.value > 0) || [];
 
-    // Daily spending for area chart
+    // Daily spending for area chart - only up to today
     const dailySpending = [];
-    const daysInMonth = getDaysInMonth(currentMonth);
-    for (let day = 1; day <= daysInMonth; day++) {
+    const today = new Date();
+    const isCurrentMonth = currentMonth.getMonth() === today.getMonth() && currentMonth.getFullYear() === today.getFullYear();
+    const maxDay = isCurrentMonth ? today.getDate() : getDaysInMonth(currentMonth);
+    
+    const currentMonthTransactions = currentData.transactions?.filter(t => {
+      if (!t.date) return false;
+      return t.date.startsWith(monthKey);
+    }) || [];
+    
+    for (let day = 1; day <= maxDay; day++) {
       const dateStr = `${monthKey}-${String(day).padStart(2, '0')}`;
-      const dayTotal = currentData.transactions?.filter(t => t.date === dateStr).reduce((s, t) => s + t.amount, 0) || 0;
+      const dayTotal = currentMonthTransactions.filter(t => t.date === dateStr).reduce((s, t) => s + t.amount, 0);
       dailySpending.push({
         day: day,
         amount: dayTotal,
@@ -344,15 +384,20 @@ export default function App() {
       });
     }
 
-    // Budget vs Actual for bar chart
-    const budgetVsActual = currentData.categories?.map(cat => ({
-      name: cat.name,
-      icon: cat.icon,
-      planned: cat.items?.reduce((s, i) => s + (i.planned || 0), 0) || 0,
-      spent: cat.items?.reduce((s, i) => s + calculations.getItemSpent(i.id), 0) || 0,
-    })) || [];
+    // Budget vs Actual for bar chart - with over budget flag
+    const budgetVsActual = currentData.categories?.map(cat => {
+      const planned = cat.items?.reduce((s, i) => s + (i.planned || 0), 0) || 0;
+      const spent = cat.items?.reduce((s, i) => s + calculations.getItemSpent(i.id), 0) || 0;
+      return {
+        name: cat.name,
+        icon: cat.icon,
+        planned,
+        spent,
+        isOver: spent > planned
+      };
+    }) || [];
 
-    // Weekly spending
+    // Weekly spending - only transactions from current month
     const weeklySpending = [
       { week: 'Week 1', amount: 0 },
       { week: 'Week 2', amount: 0 },
@@ -360,8 +405,12 @@ export default function App() {
       { week: 'Week 4', amount: 0 },
       { week: 'Week 5', amount: 0 },
     ];
-    currentData.transactions?.forEach(t => {
-      const day = parseInt(t.date.split('-')[2]);
+    currentMonthTransactions.forEach(t => {
+      if (!t.date) return;
+      const dateParts = t.date.split('-');
+      if (dateParts.length < 3) return;
+      const day = parseInt(dateParts[2], 10);
+      if (isNaN(day)) return;
       const weekIdx = Math.min(Math.floor((day - 1) / 7), 4);
       weeklySpending[weekIdx].amount += t.amount;
     });
@@ -452,6 +501,12 @@ export default function App() {
 
   const handleSaveItem = () => {
     if (!formData.name || !formData.planned) return;
+    
+    // Add to past item names for suggestions (keep unique, max 50)
+    if (formData.name && !pastItemNames.includes(formData.name)) {
+      setPastItemNames(prev => [formData.name, ...prev].slice(0, 50));
+    }
+    
     updateMonthData(data => {
       const categories = [...(data.categories || [])];
       const cat = { ...categories[modalData.catIdx] };
@@ -801,7 +856,21 @@ export default function App() {
             <>
               <h3 className="text-xl font-bold mb-4">{modalData.editing ? 'Edit' : 'Add'} Budget Item</h3>
               <div className="space-y-3 mb-6">
-                <input type="text" value={formData.name || ''} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="Item name" className={`w-full px-4 py-3 rounded-xl border ${theme.input}`} />
+                <div>
+                  <input type="text" value={formData.name || ''} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="Item name" className={`w-full px-4 py-3 rounded-xl border ${theme.input}`} list="item-suggestions" />
+                  {pastItemNames.length > 0 && formData.name && formData.name.length > 0 && (
+                    <div className={`mt-1 flex flex-wrap gap-1`}>
+                      {pastItemNames
+                        .filter(n => n.toLowerCase().includes(formData.name.toLowerCase()) && n.toLowerCase() !== formData.name.toLowerCase())
+                        .slice(0, 5)
+                        .map((name, i) => (
+                          <button key={i} onClick={() => setFormData({ ...formData, name })} className={`text-xs px-2 py-1 rounded-full ${theme.card} border ${theme.border} hover:border-emerald-500`}>
+                            {name}
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                </div>
                 <div className="relative">
                   <DollarSign className={`absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 ${theme.textMuted}`} />
                   <input type="number" value={formData.planned || ''} onChange={(e) => setFormData({ ...formData, planned: e.target.value })} placeholder="Planned amount" className={`w-full pl-10 pr-4 py-3 rounded-xl border ${theme.input}`} />
@@ -927,7 +996,7 @@ export default function App() {
     const clr = colors[cat.color] || colors.emerald;
     
     return (
-      <div className={`min-h-screen ${theme.bg} ${theme.text} pb-24`}>
+      <div className={`min-h-screen ${theme.bg} ${theme.text} pb-24`} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
         {renderModal()}
         <div className={`bg-gradient-to-br ${clr.gradient} text-white p-4 sticky top-0 z-10`}>
           <div className="flex items-center gap-3 mb-3">
@@ -1013,7 +1082,7 @@ export default function App() {
     const clr = colors[goal.color] || colors.emerald;
     
     return (
-      <div className={`min-h-screen ${theme.bg} ${theme.text} pb-24`}>
+      <div className={`min-h-screen ${theme.bg} ${theme.text} pb-24`} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
         {renderModal()}
         <div className={`bg-gradient-to-br ${clr.gradient} text-white p-4 sticky top-0 z-10`}>
           <div className="flex items-center gap-3 mb-4">
@@ -1101,19 +1170,19 @@ export default function App() {
             <p className="text-[10px] opacity-70">Income</p>
           </div>
           <div className="bg-white/15 backdrop-blur rounded-xl p-2.5 text-center">
-            <Target className="w-4 h-4 mx-auto mb-1 opacity-80" />
-            <p className="text-lg font-bold">{formatCurrency(calculations.planned, true)}</p>
-            <p className="text-[10px] opacity-70">Planned</p>
-          </div>
-          <div className="bg-white/15 backdrop-blur rounded-xl p-2.5 text-center">
             <CreditCard className="w-4 h-4 mx-auto mb-1 opacity-80" />
             <p className="text-lg font-bold">{formatCurrency(calculations.spent, true)}</p>
             <p className="text-[10px] opacity-70">Spent</p>
           </div>
           <div className="bg-white/15 backdrop-blur rounded-xl p-2.5 text-center">
+            <Target className="w-4 h-4 mx-auto mb-1 opacity-80" />
+            <p className="text-lg font-bold">{formatCurrency(calculations.spentToday)}</p>
+            <p className="text-[10px] opacity-70">Today</p>
+          </div>
+          <div className="bg-white/15 backdrop-blur rounded-xl p-2.5 text-center">
             <TrendingUp className="w-4 h-4 mx-auto mb-1 opacity-80" />
             <p className="text-lg font-bold">{formatCurrency(calculations.dailyBudget)}</p>
-            <p className="text-[10px] opacity-70">/day</p>
+            <p className="text-[10px] opacity-70">/day left</p>
           </div>
         </div>
 
@@ -1420,9 +1489,9 @@ export default function App() {
                           const isWarning = pct > 80 && !isOver;
                           
                           return (
-                            <div key={item.id} onClick={() => setViewingItem({ catIdx, itemIdx })} className={`p-4 cursor-pointer ${theme.hover} transition-colors`}>
+                            <div key={item.id} className={`p-4 ${theme.hover} transition-colors`}>
                               <div className="flex justify-between items-center mb-2">
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-1 cursor-pointer" onClick={() => setViewingItem({ catIdx, itemIdx })}>
                                   <span className="font-medium">{item.name}</span>
                                   {item.recurring && <Repeat className="w-3 h-3 text-emerald-500" />}
                                   {isOver && <AlertTriangle className="w-4 h-4 text-red-500" />}
@@ -1432,10 +1501,13 @@ export default function App() {
                                     {formatCurrency(spent)}
                                   </span>
                                   <span className={theme.textMuted}>/ {formatCurrency(item.planned)}</span>
-                                  <ChevronRight className={`w-4 h-4 ${theme.textMuted}`} />
+                                  <button onClick={(e) => { e.stopPropagation(); openModal('delete', { type: 'item', catIdx, itemIdx }); }} className="p-1 text-red-500 opacity-40 hover:opacity-100">
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                  <ChevronRight className={`w-4 h-4 ${theme.textMuted} cursor-pointer`} onClick={() => setViewingItem({ catIdx, itemIdx })} />
                                 </div>
                               </div>
-                              <div className={`h-2 ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} rounded-full overflow-hidden`}>
+                              <div className={`h-2 ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} rounded-full overflow-hidden cursor-pointer`} onClick={() => setViewingItem({ catIdx, itemIdx })}>
                                 <div className={`h-full transition-all ${isOver ? 'bg-red-500' : isWarning ? 'bg-amber-500' : clr.bg}`} style={{ width: `${Math.min(pct, 100)}%` }} />
                               </div>
                             </div>
@@ -1559,7 +1631,11 @@ export default function App() {
                     <Tooltip content={<CustomTooltip />} />
                     <Legend />
                     <Bar dataKey="planned" name="Planned" fill="#94a3b8" radius={[0, 4, 4, 0]} />
-                    <Bar dataKey="spent" name="Spent" fill="#10b981" radius={[0, 4, 4, 0]} />
+                    <Bar dataKey="spent" name="Spent" radius={[0, 4, 4, 0]}>
+                      {chartData.budgetVsActual.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.isOver ? '#ef4444' : '#10b981'} />
+                      ))}
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -1612,6 +1688,9 @@ export default function App() {
                           <p className={`text-xs ${theme.textMuted}`}>{txn.itemName} • {formatDate(txn.date)}</p>
                         </div>
                         <p className="font-bold">{formatCurrency(txn.amount)}</p>
+                        <button onClick={(e) => { e.stopPropagation(); openModal('delete', { type: 'transaction', txnId: txn.id }); }} className="p-2 text-red-500 opacity-50 hover:opacity-100">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     );
                   })
