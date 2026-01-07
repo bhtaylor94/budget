@@ -279,12 +279,35 @@ export default function App() {
     setTouchStart(null);
   };
 
-  // Initialize month
+  // Initialize month - copy budget from previous month if available
   useEffect(() => {
     if (!loading && !monthlyData[monthKey]) {
-      setMonthlyData(prev => ({ ...prev, [monthKey]: generateDefaultData(monthKey) }));
+      // Find the most recent previous month with data
+      const sortedMonths = Object.keys(monthlyData).sort().reverse();
+      const previousMonth = sortedMonths.find(m => m < monthKey);
+      
+      if (previousMonth && monthlyData[previousMonth]) {
+        // Copy categories and income from previous month, but zero out transactions
+        const prevData = monthlyData[previousMonth];
+        const newMonthData = {
+          income: prevData.income ? prevData.income.map(inc => ({ ...inc, id: Date.now() + Math.random() })) : [],
+          categories: prevData.categories ? prevData.categories.map(cat => ({
+            ...cat,
+            id: Date.now() + Math.random(),
+            items: cat.items ? cat.items.map(item => ({
+              ...item,
+              id: Date.now() + Math.random() + Math.random()
+            })) : []
+          })) : [],
+          transactions: [] // Fresh start for transactions
+        };
+        setMonthlyData(prev => ({ ...prev, [monthKey]: newMonthData }));
+      } else {
+        // No previous month, use defaults
+        setMonthlyData(prev => ({ ...prev, [monthKey]: generateDefaultData(monthKey) }));
+      }
     }
-  }, [monthKey, loading]);
+  }, [monthKey, loading, monthlyData]);
 
   useEffect(() => {
     if (currentData.categories?.length > 0 && Object.keys(expandedCats).length === 0) {
