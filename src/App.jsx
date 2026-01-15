@@ -2,13 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, set, get } from 'firebase/database';
 import { 
-  getAuth, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword,
-  signOut,
-  onAuthStateChanged 
-} from 'firebase/auth';
-import { 
   DollarSign, Plus, TrendingUp, Trash2, Loader2, 
   MessageSquare, X, Calendar, Edit3, ChevronRight, Moon, Sun,
   AlertTriangle, ArrowLeft, Wallet, Target, CreditCard,
@@ -36,10 +29,12 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
-const auth = getAuth(app);
 
-// Storage helper - syncs to Firebase (userId will be set dynamically)
-const createStorage = (userId) => ({
+// Fixed user ID for your data
+const userId = 'bradley_budget';
+
+// Storage helper - syncs to Firebase
+const storage = {
   get: async (key) => {
     try {
       const snapshot = await get(ref(db, `users/${userId}/${key}`));
@@ -59,7 +54,7 @@ const createStorage = (userId) => ({
       console.error('Firebase write error:', e);
     }
   }
-});
+};
 
 // Utility functions
 const formatCurrency = (amount, short = false) => {
@@ -185,15 +180,6 @@ const AI_PROMPTS = [
 ];
 
 export default function App() {
-  // Auth state
-  const [user, setUser] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [authMode, setAuthMode] = useState('login'); // 'login' or 'signup'
-  const [authEmail, setAuthEmail] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
-  const [authError, setAuthError] = useState('');
-  const [storage, setStorage] = useState(null);
-
   const [currentMonth, setCurrentMonth] = useState(new Date(2026, 0, 1));
   const [view, setView] = useState('budget');
   const [darkMode, setDarkMode] = useState(false);
@@ -221,59 +207,11 @@ export default function App() {
   const [viewingItem, setViewingItem] = useState(null);
   const [viewingGoal, setViewingGoal] = useState(null);
 
-  // Listen for auth state changes
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
-      if (user) {
-        setStorage(createStorage(user.uid));
-      } else {
-        setStorage(null);
-      }
-      setAuthLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  // Auth handlers
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setAuthError('');
-    try {
-      await signInWithEmailAndPassword(auth, authEmail, authPassword);
-    } catch (error) {
-      setAuthError(error.message.replace('Firebase: ', ''));
-    }
-  };
-
-  const handleSignup = async (e) => {
-    e.preventDefault();
-    setAuthError('');
-    try {
-      await createUserWithEmailAndPassword(auth, authEmail, authPassword);
-    } catch (error) {
-      setAuthError(error.message.replace('Firebase: ', ''));
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      setMonthlyData({});
-      setGoals([]);
-      setLoading(true);
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
-  };
-
   const monthKey = getMonthKey(currentMonth);
   const currentData = monthlyData[monthKey] || { income: [], categories: [], transactions: [] };
 
-  // Load data when user logs in
+  // Load data
   useEffect(() => {
-    if (!user || !storage) return;
-    
     const loadData = async () => {
       const saved = await storage.get('budget-pro-v2');
       const savedGoals = await storage.get('budget-pro-goals-v2');
@@ -295,23 +233,23 @@ export default function App() {
       setLoading(false);
     };
     loadData();
-  }, [user, storage]);
+  }, []);
 
   // Save data
   useEffect(() => {
-    if (!loading && storage && Object.keys(monthlyData).length > 0) {
+    if (!loading && Object.keys(monthlyData).length > 0) {
       storage.set('budget-pro-v2', monthlyData);
     }
-  }, [monthlyData, loading, storage]);
+  }, [monthlyData, loading]);
 
   useEffect(() => {
-    if (!loading && storage) {
+    if (!loading) {
       storage.set('budget-pro-goals-v2', goals);
       storage.set('budget-pro-dark-v2', darkMode);
       storage.set('budget-pro-reminders-v2', customReminders);
       storage.set('budget-pro-itemnames-v2', pastItemNames);
     }
-  }, [goals, darkMode, customReminders, pastItemNames, loading, storage]);
+  }, [goals, darkMode, customReminders, pastItemNames, loading]);
 
   // Swipe back gesture handler
   const handleTouchStart = (e) => {
@@ -1088,86 +1026,6 @@ export default function App() {
     );
   };
 
-  // Auth loading screen
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center">
-        <div className="text-center text-white">
-          <Loader2 className="w-10 h-10 animate-spin mx-auto mb-4" />
-          <p>Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Login/Signup screen
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center p-4">
-        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8">
-          <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <Wallet className="w-8 h-8 text-emerald-600" />
-            </div>
-            <h1 className="text-2xl font-bold text-gray-800">Budget Pro</h1>
-            <p className="text-gray-500">Track your spending, reach your goals</p>
-          </div>
-
-          <form onSubmit={authMode === 'login' ? handleLogin : handleSignup} className="space-y-4">
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="email"
-                value={authEmail}
-                onChange={(e) => setAuthEmail(e.target.value)}
-                placeholder="Email"
-                className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all"
-                required
-              />
-            </div>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="password"
-                value={authPassword}
-                onChange={(e) => setAuthPassword(e.target.value)}
-                placeholder="Password"
-                className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all"
-                required
-                minLength={6}
-              />
-            </div>
-
-            {authError && (
-              <div className="bg-red-50 text-red-600 px-4 py-3 rounded-xl text-sm">
-                {authError}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              className="w-full bg-emerald-500 text-white py-3 rounded-xl font-semibold hover:bg-emerald-600 transition-colors"
-            >
-              {authMode === 'login' ? 'Sign In' : 'Create Account'}
-            </button>
-          </form>
-
-          <div className="mt-6 text-center">
-            <button
-              onClick={() => {
-                setAuthMode(authMode === 'login' ? 'signup' : 'login');
-                setAuthError('');
-              }}
-              className="text-emerald-600 font-medium"
-            >
-              {authMode === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   if (loading) {
     return (
       <div className={`min-h-screen ${theme.bg} flex items-center justify-center`}>
@@ -1417,9 +1275,6 @@ export default function App() {
             </button>
             <button onClick={() => setShowAI(true)} className="p-2 rounded-full hover:bg-white/20 relative">
               <Sparkles className="w-5 h-5" />
-            </button>
-            <button onClick={handleLogout} className="p-2 rounded-full hover:bg-white/20">
-              <LogOut className="w-5 h-5" />
             </button>
           </div>
         </div>
