@@ -274,6 +274,24 @@ export default function App() {
     setTouchStart(null);
   };
 
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    if (modal) {
+      document.body.style.overflow = 'hidden';
+      document.body.style.position = 'fixed';
+      document.body.style.width = '100%';
+    } else {
+      document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.width = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.width = '';
+    };
+  }, [modal]);
+
   // Check if current month needs to be created
   const needsMonthSetup = !loading && !monthlyData[monthKey];
   
@@ -875,13 +893,21 @@ export default function App() {
     
     return (
       <div 
-        className="fixed inset-0 bg-black/50 z-50 overflow-y-auto"
-        onClick={closeModal}
+        className="fixed inset-0 z-50 flex flex-col"
+        style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
       >
-        <div className="min-h-full flex items-end sm:items-center sm:justify-center">
+        {/* Tap to close area */}
+        <div className="flex-1" onClick={closeModal} />
+        
+        {/* Modal content */}
+        <div 
+          className={`${theme.card} ${theme.text} w-full rounded-t-3xl overflow-hidden`}
+          style={{ maxHeight: '80vh' }}
+        >
+          {/* Scrollable inner content */}
           <div 
-            className={`${theme.card} ${theme.text} w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl p-6 pb-10`}
-            onClick={e => e.stopPropagation()}
+            className="p-6 pb-10 overflow-y-auto"
+            style={{ maxHeight: '80vh' }}
           >
             {modal === 'delete' ? (
             <>
