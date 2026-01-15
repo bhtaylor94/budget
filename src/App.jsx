@@ -330,8 +330,11 @@ export default function App() {
     const savingsPlanned = currentData.categories?.reduce((s, c) => 
       c.isSavings ? s + (c.items?.reduce((a, i) => a + (i.planned || 0), 0) || 0) : s, 0) || 0;
     
-    // Spendable is total planned minus savings
-    const spendablePlanned = planned - savingsPlanned;
+    // Unallocated = income minus all planned spending
+    const unallocated = income - planned;
+    
+    // Spendable is total planned minus savings PLUS any unallocated money
+    const spendablePlanned = (planned - savingsPlanned) + Math.max(0, unallocated);
     
     const getItemSpent = (itemId) => 
       currentData.transactions?.filter(t => t.itemId === itemId).reduce((s, t) => s + t.amount, 0) || 0;
@@ -354,13 +357,13 @@ export default function App() {
     const spentToday = currentData.transactions?.filter(t => t.date === today && nonSavingsItemIds.has(t.itemId)).reduce((s, t) => s + t.amount, 0) || 0;
     
     const remaining = income - planned;
-    // Left to spend excludes savings
+    // Left to spend = spendable budget minus what's been spent (includes unallocated)
     const leftToSpend = spendablePlanned - spentNonSavings;
     const daysLeft = getDaysRemaining(currentMonth);
     const dailyBudget = daysLeft > 0 ? leftToSpend / daysLeft : 0;
     const spentPercent = spendablePlanned > 0 ? (spentNonSavings / spendablePlanned) * 100 : 0;
     
-    return { income, planned, spent, remaining, leftToSpend, daysLeft, dailyBudget, spentPercent, spentToday, savingsPlanned, spendablePlanned, getItemSpent };
+    return { income, planned, spent, remaining, leftToSpend, daysLeft, dailyBudget, spentPercent, spentToday, savingsPlanned, spendablePlanned, unallocated, getItemSpent };
   }, [currentData, currentMonth]);
 
   // Upcoming bills - finds recurring items with due dates that haven't been paid
@@ -496,6 +499,41 @@ export default function App() {
       return { ...cat, idx, planned, spent, txnCount, pct };
     }).sort((a, b) => b.spent - a.spent) || [];
   }, [currentData, calculations]);
+
+  // Calculate average monthly savings across all months
+  const savingsStats = useMemo(() => {
+    const monthKeys = Object.keys(monthlyData).sort();
+    const today = new Date();
+    const currentMonthKey = getMonthKey(today);
+    
+    // Only include completed months (not current month)
+    const completedMonths = monthKeys.filter(mk => mk < currentMonthKey);
+    
+    if (completedMonths.length === 0) {
+      return { avgSavings: 0, totalSavings: 0, monthCount: 0, monthlyBreakdown: [] };
+    }
+    
+    const monthlyBreakdown = completedMonths.map(mk => {
+      const data = monthlyData[mk];
+      if (!data?.categories) return { month: mk, savings: 0 };
+      
+      // Calculate actual savings for that month (what was put into savings categories)
+      const savingsSpent = data.categories?.reduce((s, c) => {
+        if (!c.isSavings) return s;
+        return s + (c.items?.reduce((a, i) => {
+          const itemSpent = data.transactions?.filter(t => t.itemId === i.id).reduce((sum, t) => sum + t.amount, 0) || 0;
+          return a + itemSpent;
+        }, 0) || 0);
+      }, 0) || 0;
+      
+      return { month: mk, savings: savingsSpent };
+    });
+    
+    const totalSavings = monthlyBreakdown.reduce((s, m) => s + m.savings, 0);
+    const avgSavings = completedMonths.length > 0 ? totalSavings / completedMonths.length : 0;
+    
+    return { avgSavings, totalSavings, monthCount: completedMonths.length, monthlyBreakdown };
+  }, [monthlyData]);
 
   const updateMonthData = (updater) => {
     setMonthlyData(prev => ({
@@ -836,8 +874,12 @@ export default function App() {
     if (!modal) return null;
     
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center sm:justify-center">
-        <div className={`${theme.card} ${theme.text} w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl p-6 max-h-[85vh] overflow-y-auto pb-8`}>
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center sm:justify-center" onClick={closeModal} style={{ touchAction: 'none' }}>
+        <div 
+          className={`${theme.card} ${theme.text} w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl p-6 pb-10`}
+          style={{ maxHeight: '80vh', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}
+          onClick={e => e.stopPropagation()}
+        >
           {modal === 'delete' ? (
             <>
               <div className="flex items-center gap-3 mb-4">
@@ -1673,6 +1715,34 @@ export default function App() {
                 <p className={`text-sm ${theme.textMuted}`}>Transactions</p>
                 <p className="text-2xl font-bold">{getAllTransactions.length}</p>
               </div>
+            </div>
+
+            {/* Average Monthly Savings Card */}
+            <div className={`${theme.card} rounded-2xl p-4`}>
+              <h3 className="font-bold mb-3 flex items-center gap-2">
+                <Target className="w-5 h-5 text-emerald-500" /> Savings Overview
+              </h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className={`text-xs ${theme.textMuted} mb-1`}>This Month (Planned)</p>
+                  <p className="text-xl font-bold text-emerald-600">{formatCurrency(calculations.savingsPlanned)}</p>
+                </div>
+                <div>
+                  <p className={`text-xs ${theme.textMuted} mb-1`}>Monthly Average</p>
+                  <p className="text-xl font-bold text-blue-600">
+                    {savingsStats.monthCount > 0 ? formatCurrency(savingsStats.avgSavings) : '—'}
+                  </p>
+                  {savingsStats.monthCount > 0 && (
+                    <p className={`text-xs ${theme.textMuted}`}>over {savingsStats.monthCount} month{savingsStats.monthCount !== 1 ? 's' : ''}</p>
+                  )}
+                </div>
+              </div>
+              {savingsStats.monthCount > 0 && (
+                <div className={`mt-4 pt-4 border-t ${theme.border}`}>
+                  <p className={`text-xs ${theme.textMuted} mb-2`}>Total Saved (All Time)</p>
+                  <p className="text-2xl font-bold text-emerald-600">{formatCurrency(savingsStats.totalSavings)}</p>
+                </div>
+              )}
             </div>
 
             {/* Spending Pie Chart */}
