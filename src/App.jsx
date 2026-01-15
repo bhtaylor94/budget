@@ -874,13 +874,16 @@ export default function App() {
     if (!modal) return null;
     
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center sm:justify-center" onClick={closeModal} style={{ touchAction: 'none' }}>
-        <div 
-          className={`${theme.card} ${theme.text} w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl p-6 pb-10`}
-          style={{ maxHeight: '80vh', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}
-          onClick={e => e.stopPropagation()}
-        >
-          {modal === 'delete' ? (
+      <div 
+        className="fixed inset-0 bg-black/50 z-50 overflow-y-auto"
+        onClick={closeModal}
+      >
+        <div className="min-h-full flex items-end sm:items-center sm:justify-center">
+          <div 
+            className={`${theme.card} ${theme.text} w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl p-6 pb-10`}
+            onClick={e => e.stopPropagation()}
+          >
+            {modal === 'delete' ? (
             <>
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
@@ -1063,6 +1066,7 @@ export default function App() {
               </div>
             </>
           ) : null}
+          </div>
         </div>
       </div>
     );
