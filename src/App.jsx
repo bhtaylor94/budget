@@ -2,11 +2,19 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, set, get } from 'firebase/database';
 import { 
+  getAuth, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged 
+} from 'firebase/auth';
+import { 
   DollarSign, Plus, TrendingUp, Trash2, Loader2, 
   MessageSquare, X, Calendar, Edit3, ChevronRight, Moon, Sun,
   AlertTriangle, ArrowLeft, Wallet, Target, CreditCard,
   BarChart3, ChevronDown, ChevronUp, Search,
-  ChevronLeft, Repeat, PieChart, Activity, Sparkles, Bell
+  ChevronLeft, Repeat, PieChart, Activity, Sparkles, Bell,
+  LogOut, Mail, Lock, User
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -28,38 +36,30 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
+const auth = getAuth(app);
 
-// Use a fixed user ID so all your devices share the same data
-// Change this to something unique to you if you want
-const userId = 'bradley_budget';
-
-// Storage helper - syncs to Firebase
-const storage = {
+// Storage helper - syncs to Firebase (userId will be set dynamically)
+const createStorage = (userId) => ({
   get: async (key) => {
     try {
       const snapshot = await get(ref(db, `users/${userId}/${key}`));
       if (snapshot.exists()) {
         return snapshot.val();
       }
-      // Fallback to localStorage for migration
-      const local = localStorage.getItem(key);
-      return local ? JSON.parse(local) : null;
+      return null;
     } catch (e) {
       console.error('Firebase read error:', e);
-      const local = localStorage.getItem(key);
-      return local ? JSON.parse(local) : null;
+      return null;
     }
   },
   set: async (key, value) => {
     try {
       await set(ref(db, `users/${userId}/${key}`), value);
-      localStorage.setItem(key, JSON.stringify(value));
     } catch (e) {
       console.error('Firebase write error:', e);
-      localStorage.setItem(key, JSON.stringify(value));
     }
   }
-};
+});
 
 // Utility functions
 const formatCurrency = (amount, short = false) => {
@@ -185,6 +185,15 @@ const AI_PROMPTS = [
 ];
 
 export default function App() {
+  // Auth state
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authMode, setAuthMode] = useState('login'); // 'login' or 'signup'
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [storage, setStorage] = useState(null);
+
   const [currentMonth, setCurrentMonth] = useState(new Date(2026, 0, 1));
   const [view, setView] = useState('budget');
   const [darkMode, setDarkMode] = useState(false);
@@ -212,11 +221,59 @@ export default function App() {
   const [viewingItem, setViewingItem] = useState(null);
   const [viewingGoal, setViewingGoal] = useState(null);
 
+  // Listen for auth state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user);
+      if (user) {
+        setStorage(createStorage(user.uid));
+      } else {
+        setStorage(null);
+      }
+      setAuthLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Auth handlers
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    try {
+      await signInWithEmailAndPassword(auth, authEmail, authPassword);
+    } catch (error) {
+      setAuthError(error.message.replace('Firebase: ', ''));
+    }
+  };
+
+  const handleSignup = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    try {
+      await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+    } catch (error) {
+      setAuthError(error.message.replace('Firebase: ', ''));
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setMonthlyData({});
+      setGoals([]);
+      setLoading(true);
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  };
+
   const monthKey = getMonthKey(currentMonth);
   const currentData = monthlyData[monthKey] || { income: [], categories: [], transactions: [] };
 
-  // Load data
+  // Load data when user logs in
   useEffect(() => {
+    if (!user || !storage) return;
+    
     const loadData = async () => {
       const saved = await storage.get('budget-pro-v2');
       const savedGoals = await storage.get('budget-pro-goals-v2');
@@ -238,23 +295,23 @@ export default function App() {
       setLoading(false);
     };
     loadData();
-  }, []);
+  }, [user, storage]);
 
   // Save data
   useEffect(() => {
-    if (!loading && Object.keys(monthlyData).length > 0) {
+    if (!loading && storage && Object.keys(monthlyData).length > 0) {
       storage.set('budget-pro-v2', monthlyData);
     }
-  }, [monthlyData, loading]);
+  }, [monthlyData, loading, storage]);
 
   useEffect(() => {
-    if (!loading) {
+    if (!loading && storage) {
       storage.set('budget-pro-goals-v2', goals);
       storage.set('budget-pro-dark-v2', darkMode);
       storage.set('budget-pro-reminders-v2', customReminders);
       storage.set('budget-pro-itemnames-v2', pastItemNames);
     }
-  }, [goals, darkMode, customReminders, pastItemNames, loading]);
+  }, [goals, darkMode, customReminders, pastItemNames, loading, storage]);
 
   // Swipe back gesture handler
   const handleTouchStart = (e) => {
@@ -331,23 +388,41 @@ export default function App() {
     const planned = currentData.categories?.reduce((s, c) => 
       s + (c.items?.reduce((a, i) => a + (i.planned || 0), 0) || 0), 0) || 0;
     
+    // Calculate savings (categories marked as savings)
+    const savingsPlanned = currentData.categories?.reduce((s, c) => 
+      c.isSavings ? s + (c.items?.reduce((a, i) => a + (i.planned || 0), 0) || 0) : s, 0) || 0;
+    
+    // Spendable is total planned minus savings
+    const spendablePlanned = planned - savingsPlanned;
+    
     const getItemSpent = (itemId) => 
       currentData.transactions?.filter(t => t.itemId === itemId).reduce((s, t) => s + t.amount, 0) || 0;
     
     const spent = currentData.categories?.reduce((s, c) => 
       s + (c.items?.reduce((a, i) => a + getItemSpent(i.id), 0) || 0), 0) || 0;
     
-    // Calculate today's spending
+    // Spent on non-savings categories only
+    const spentNonSavings = currentData.categories?.reduce((s, c) => 
+      c.isSavings ? s : s + (c.items?.reduce((a, i) => a + getItemSpent(i.id), 0) || 0), 0) || 0;
+    
+    // Calculate today's spending (non-savings)
     const today = new Date().toISOString().split('T')[0];
-    const spentToday = currentData.transactions?.filter(t => t.date === today).reduce((s, t) => s + t.amount, 0) || 0;
+    const nonSavingsItemIds = new Set();
+    currentData.categories?.forEach(c => {
+      if (!c.isSavings) {
+        c.items?.forEach(i => nonSavingsItemIds.add(i.id));
+      }
+    });
+    const spentToday = currentData.transactions?.filter(t => t.date === today && nonSavingsItemIds.has(t.itemId)).reduce((s, t) => s + t.amount, 0) || 0;
     
     const remaining = income - planned;
-    const leftToSpend = planned - spent;
+    // Left to spend excludes savings
+    const leftToSpend = spendablePlanned - spentNonSavings;
     const daysLeft = getDaysRemaining(currentMonth);
     const dailyBudget = daysLeft > 0 ? leftToSpend / daysLeft : 0;
-    const spentPercent = planned > 0 ? (spent / planned) * 100 : 0;
+    const spentPercent = spendablePlanned > 0 ? (spentNonSavings / spendablePlanned) * 100 : 0;
     
-    return { income, planned, spent, remaining, leftToSpend, daysLeft, dailyBudget, spentPercent, spentToday, getItemSpent };
+    return { income, planned, spent, remaining, leftToSpend, daysLeft, dailyBudget, spentPercent, spentToday, savingsPlanned, spendablePlanned, getItemSpent };
   }, [currentData, currentMonth]);
 
   // Upcoming bills - finds recurring items with due dates that haven't been paid
@@ -523,9 +598,9 @@ export default function App() {
     updateMonthData(data => {
       const categories = [...(data.categories || [])];
       if (modalData.editing) {
-        categories[modalData.catIdx] = { ...categories[modalData.catIdx], name: formData.name, icon: formData.icon, color: formData.color };
+        categories[modalData.catIdx] = { ...categories[modalData.catIdx], name: formData.name, icon: formData.icon, color: formData.color, isSavings: formData.isSavings || false };
       } else {
-        categories.push({ id: Date.now(), name: formData.name, icon: formData.icon || '📦', color: formData.color || 'emerald', items: [] });
+        categories.push({ id: Date.now(), name: formData.name, icon: formData.icon || '📦', color: formData.color || 'emerald', isSavings: formData.isSavings || false, items: [] });
       }
       return { ...data, categories };
     });
@@ -861,6 +936,13 @@ export default function App() {
               <h3 className="text-xl font-bold mb-4">{modalData.editing ? 'Edit' : 'Add'} Category</h3>
               <div className="space-y-4 mb-6">
                 <input type="text" value={formData.name || ''} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="Category name" className={`w-full px-4 py-3 rounded-xl border ${theme.input}`} />
+                <label className={`flex items-center gap-3 p-3 rounded-xl border ${theme.border} cursor-pointer ${formData.isSavings ? 'bg-emerald-50 border-emerald-300' : ''}`}>
+                  <input type="checkbox" checked={formData.isSavings || false} onChange={(e) => setFormData({ ...formData, isSavings: e.target.checked })} className="w-5 h-5 rounded accent-emerald-500" />
+                  <div>
+                    <span className="font-medium">Savings Category</span>
+                    <p className={`text-xs ${theme.textMuted}`}>Excludes from "left to spend" calculations</p>
+                  </div>
+                </label>
                 <div>
                   <p className={`text-sm ${theme.textMuted} mb-2`}>Icon</p>
                   <div className="flex flex-wrap gap-2">
@@ -1005,6 +1087,86 @@ export default function App() {
       </div>
     );
   };
+
+  // Auth loading screen
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center">
+        <div className="text-center text-white">
+          <Loader2 className="w-10 h-10 animate-spin mx-auto mb-4" />
+          <p>Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Login/Signup screen
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center p-4">
+        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8">
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Wallet className="w-8 h-8 text-emerald-600" />
+            </div>
+            <h1 className="text-2xl font-bold text-gray-800">Budget Pro</h1>
+            <p className="text-gray-500">Track your spending, reach your goals</p>
+          </div>
+
+          <form onSubmit={authMode === 'login' ? handleLogin : handleSignup} className="space-y-4">
+            <div className="relative">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="email"
+                value={authEmail}
+                onChange={(e) => setAuthEmail(e.target.value)}
+                placeholder="Email"
+                className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all"
+                required
+              />
+            </div>
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="password"
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                placeholder="Password"
+                className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all"
+                required
+                minLength={6}
+              />
+            </div>
+
+            {authError && (
+              <div className="bg-red-50 text-red-600 px-4 py-3 rounded-xl text-sm">
+                {authError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="w-full bg-emerald-500 text-white py-3 rounded-xl font-semibold hover:bg-emerald-600 transition-colors"
+            >
+              {authMode === 'login' ? 'Sign In' : 'Create Account'}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <button
+              onClick={() => {
+                setAuthMode(authMode === 'login' ? 'signup' : 'login');
+                setAuthError('');
+              }}
+              className="text-emerald-600 font-medium"
+            >
+              {authMode === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -1255,6 +1417,9 @@ export default function App() {
             </button>
             <button onClick={() => setShowAI(true)} className="p-2 rounded-full hover:bg-white/20 relative">
               <Sparkles className="w-5 h-5" />
+            </button>
+            <button onClick={handleLogout} className="p-2 rounded-full hover:bg-white/20">
+              <LogOut className="w-5 h-5" />
             </button>
           </div>
         </div>
@@ -1563,7 +1728,10 @@ export default function App() {
                     <div className="flex items-center gap-3">
                       <span className="text-2xl">{cat.icon}</span>
                       <div className="text-left">
-                        <h3 className="font-bold">{cat.name}</h3>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-bold">{cat.name}</h3>
+                          {cat.isSavings && <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Savings</span>}
+                        </div>
                         <p className={`text-sm ${theme.textMuted}`}>{formatCurrency(catSpent)} of {formatCurrency(catPlan)}</p>
                       </div>
                     </div>
@@ -1614,7 +1782,7 @@ export default function App() {
                         <button onClick={() => openModal('item', { catIdx })} className={`flex-1 py-2.5 ${clr.bg} text-white rounded-xl text-sm font-semibold flex items-center justify-center gap-1`}>
                           <Plus className="w-4 h-4" /> Add Item
                         </button>
-                        <button onClick={() => openModal('category', { editing: true, catIdx, initial: { name: cat.name, icon: cat.icon, color: cat.color } })} className={`px-4 py-2.5 border ${theme.border} rounded-xl`}>
+                        <button onClick={() => openModal('category', { editing: true, catIdx, initial: { name: cat.name, icon: cat.icon, color: cat.color, isSavings: cat.isSavings } })} className={`px-4 py-2.5 border ${theme.border} rounded-xl`}>
                           <Edit3 className="w-4 h-4" />
                         </button>
                         <button onClick={() => openModal('delete', { type: 'category', catIdx })} className="px-4 py-2.5 border border-red-200 text-red-500 rounded-xl">
@@ -1842,7 +2010,7 @@ export default function App() {
       </div>
 
       {/* Bottom Nav */}
-      <div className={`fixed bottom-0 left-0 right-0 ${theme.card} border-t ${theme.border} z-20`}>
+      <div className={`fixed bottom-0 left-0 right-0 ${theme.card} border-t ${theme.border} z-50`} style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <div className="flex justify-around py-2">
           {[
             { id: 'budget', icon: Wallet, label: 'Budget' },
