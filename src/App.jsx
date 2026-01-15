@@ -837,7 +837,7 @@ export default function App() {
     
     return (
       <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center sm:justify-center">
-        <div className={`${theme.card} ${theme.text} w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl p-6 max-h-[90vh] overflow-y-auto`}>
+        <div className={`${theme.card} ${theme.text} w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl p-6 max-h-[85vh] overflow-y-auto pb-8`}>
           {modal === 'delete' ? (
             <>
               <div className="flex items-center gap-3 mb-4">
@@ -874,10 +874,10 @@ export default function App() {
               <h3 className="text-xl font-bold mb-4">{modalData.editing ? 'Edit' : 'Add'} Category</h3>
               <div className="space-y-4 mb-6">
                 <input type="text" value={formData.name || ''} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="Category name" className={`w-full px-4 py-3 rounded-xl border ${theme.input}`} />
-                <label className={`flex items-center gap-3 p-3 rounded-xl border ${theme.border} cursor-pointer ${formData.isSavings ? 'bg-emerald-50 border-emerald-300' : ''}`}>
+                <label className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer ${formData.isSavings ? (darkMode ? 'bg-emerald-900/30 border-emerald-600' : 'bg-emerald-50 border-emerald-300') : theme.border}`}>
                   <input type="checkbox" checked={formData.isSavings || false} onChange={(e) => setFormData({ ...formData, isSavings: e.target.checked })} className="w-5 h-5 rounded accent-emerald-500" />
                   <div>
-                    <span className="font-medium">Savings Category</span>
+                    <span className={`font-medium ${formData.isSavings ? 'text-emerald-400' : ''}`}>Savings Category</span>
                     <p className={`text-xs ${theme.textMuted}`}>Excludes from "left to spend" calculations</p>
                   </div>
                 </label>
