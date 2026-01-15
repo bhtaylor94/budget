@@ -893,21 +893,25 @@ export default function App() {
     
     return (
       <div 
-        className="fixed inset-0 z-50 flex flex-col"
+        className="fixed inset-0 z-50"
         style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+        onClick={closeModal}
       >
-        {/* Tap to close area */}
-        <div className="flex-1" onClick={closeModal} />
-        
-        {/* Modal content */}
+        {/* Modal positioned above bottom nav */}
         <div 
-          className={`${theme.card} ${theme.text} w-full rounded-t-3xl overflow-hidden`}
-          style={{ maxHeight: '80vh' }}
+          className={`${theme.card} ${theme.text} absolute left-0 right-0 rounded-t-3xl`}
+          style={{ bottom: '70px', maxHeight: 'calc(100vh - 140px)' }}
+          onClick={e => e.stopPropagation()}
         >
-          {/* Scrollable inner content */}
+          {/* Drag handle */}
+          <div className="flex justify-center pt-3 pb-1">
+            <div className={`w-10 h-1 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} />
+          </div>
+          
+          {/* Scrollable content */}
           <div 
-            className="p-6 pb-10 overflow-y-auto"
-            style={{ maxHeight: '80vh' }}
+            className="px-6 pb-6 overflow-y-auto"
+            style={{ maxHeight: 'calc(100vh - 180px)' }}
           >
             {modal === 'delete' ? (
             <>
