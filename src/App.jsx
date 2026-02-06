@@ -322,14 +322,15 @@ export default function App() {
   const createMonthBudget = (copyFromPrevious = true) => {
     if (copyFromPrevious && previousMonthData) {
       const prevData = previousMonthData.data;
+      let idCounter = Date.now();
       const newMonthData = {
-        income: prevData.income ? prevData.income.map(inc => ({ ...inc, id: Date.now() + Math.random() })) : [],
+        income: prevData.income ? prevData.income.map(inc => ({ ...inc, id: idCounter++ })) : [],
         categories: prevData.categories ? prevData.categories.map(cat => ({
           ...cat,
-          id: Date.now() + Math.random(),
+          id: idCounter++,
           items: cat.items ? cat.items.map(item => ({
             ...item,
-            id: Date.now() + Math.random() + Math.random()
+            id: idCounter++
           })) : []
         })) : [],
         transactions: []
@@ -644,7 +645,7 @@ export default function App() {
       const transactions = [...(data.transactions || [])];
       transactions.push({
         id: Date.now(),
-        itemId: parseInt(formData.itemId),
+        itemId: formData.itemId, // Keep as string/original value, don't parseInt
         amount: parseFloat(formData.amount),
         description: formData.description || 'Transaction',
         date: formData.date || getLocalDateString(),
@@ -1136,7 +1137,7 @@ export default function App() {
                     const transactions = [...(data.transactions || [])];
                     transactions.push({
                       id: Date.now(),
-                      itemId: parseInt(formData.itemId),
+                      itemId: formData.itemId, // Keep as string/original value
                       amount: parseFloat(formData.amount),
                       description: formData.description || 'Savings contribution',
                       date: formData.date || getLocalDateString(),
