@@ -363,7 +363,7 @@ export default function App() {
     const spendablePlanned = (planned - savingsPlanned) + Math.max(0, unallocated);
     
     const getItemSpent = (itemId) => 
-      currentData.transactions?.filter(t => t.itemId === itemId).reduce((s, t) => s + t.amount, 0) || 0;
+      currentData.transactions?.filter(t => String(t.itemId) === String(itemId)).reduce((s, t) => s + t.amount, 0) || 0;
     
     const spent = currentData.categories?.reduce((s, c) => 
       s + (c.items?.reduce((a, i) => a + getItemSpent(i.id), 0) || 0), 0) || 0;
@@ -373,14 +373,14 @@ export default function App() {
       c.isSavings ? s : s + (c.items?.reduce((a, i) => a + getItemSpent(i.id), 0) || 0), 0) || 0;
     
     // Calculate today's spending (non-savings)
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString();
     const nonSavingsItemIds = new Set();
     currentData.categories?.forEach(c => {
       if (!c.isSavings) {
-        c.items?.forEach(i => nonSavingsItemIds.add(i.id));
+        c.items?.forEach(i => nonSavingsItemIds.add(String(i.id)));
       }
     });
-    const spentToday = currentData.transactions?.filter(t => t.date === today && nonSavingsItemIds.has(t.itemId)).reduce((s, t) => s + t.amount, 0) || 0;
+    const spentToday = currentData.transactions?.filter(t => t.date === today && nonSavingsItemIds.has(String(t.itemId))).reduce((s, t) => s + t.amount, 0) || 0;
     
     const remaining = income - planned;
     // Left to spend = spendable budget minus what's been spent (includes unallocated)
@@ -544,7 +544,7 @@ export default function App() {
       const savingsSpent = data.categories?.reduce((s, c) => {
         if (!c.isSavings) return s;
         return s + (c.items?.reduce((a, i) => {
-          const itemSpent = data.transactions?.filter(t => t.itemId === i.id).reduce((sum, t) => sum + t.amount, 0) || 0;
+          const itemSpent = data.transactions?.filter(t => String(t.itemId) === String(i.id)).reduce((sum, t) => sum + t.amount, 0) || 0;
           return a + itemSpent;
         }, 0) || 0);
       }, 0) || 0;
@@ -1749,6 +1749,14 @@ export default function App() {
               const catPct = catPlan > 0 ? (catSpent / catPlan) * 100 : 0;
               const isExpanded = expandedCats[catIdx];
               
+              // For savings categories, over budget is GOOD (green), for regular categories it's BAD (red)
+              const getCatColor = () => {
+                if (cat.isSavings) {
+                  return catPct >= 100 ? 'text-emerald-500' : clr.text;
+                }
+                return catPct > 100 ? 'text-red-500' : catPct > 80 ? 'text-amber-500' : clr.text;
+              };
+              
               return (
                 <div key={cat.id} className={`${theme.card} rounded-2xl overflow-hidden shadow-sm`}>
                   <button onClick={() => setExpandedCats(prev => ({ ...prev, [catIdx]: !prev[catIdx] }))} className={`w-full p-4 flex items-center justify-between ${clr.light} ${darkMode ? 'bg-opacity-10' : ''}`}>
@@ -1763,7 +1771,7 @@ export default function App() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className={`text-sm font-semibold ${catPct > 100 ? 'text-red-500' : catPct > 80 ? 'text-amber-500' : clr.text}`}>
+                      <span className={`text-sm font-semibold ${getCatColor()}`}>
                         {catPct.toFixed(0)}%
                       </span>
                       {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
@@ -1776,8 +1784,10 @@ export default function App() {
                         {cat.items?.map((item, itemIdx) => {
                           const spent = calculations.getItemSpent(item.id);
                           const pct = item.planned > 0 ? (spent / item.planned) * 100 : 0;
-                          const isOver = pct > 100;
-                          const isWarning = pct > 80 && !isOver;
+                          // For savings, over is good; for regular categories, over is bad
+                          const isOver = !cat.isSavings && pct > 100;
+                          const isWarning = !cat.isSavings && pct > 80 && !isOver;
+                          const isSavingsOver = cat.isSavings && pct >= 100;
                           
                           return (
                             <div key={item.id} className={`p-4 ${theme.hover} transition-colors`}>
@@ -1786,9 +1796,10 @@ export default function App() {
                                   <span className="font-medium">{item.name}</span>
                                   {item.recurring && <Repeat className="w-3 h-3 text-emerald-500" />}
                                   {isOver && <AlertTriangle className="w-4 h-4 text-red-500" />}
+                                  {isSavingsOver && <span className="text-emerald-500">✓</span>}
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  <span className={`font-bold ${isOver ? 'text-red-500' : isWarning ? 'text-amber-500' : ''}`}>
+                                  <span className={`font-bold ${isOver ? 'text-red-500' : isWarning ? 'text-amber-500' : isSavingsOver ? 'text-emerald-500' : ''}`}>
                                     {formatCurrency(spent)}
                                   </span>
                                   <span className={theme.textMuted}>/ {formatCurrency(item.planned)}</span>
@@ -1799,7 +1810,7 @@ export default function App() {
                                 </div>
                               </div>
                               <div className={`h-2 ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} rounded-full overflow-hidden cursor-pointer`} onClick={() => setViewingItem({ catIdx, itemIdx })}>
-                                <div className={`h-full transition-all ${isOver ? 'bg-red-500' : isWarning ? 'bg-amber-500' : clr.bg}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                                <div className={`h-full transition-all ${isOver ? 'bg-red-500' : isWarning ? 'bg-amber-500' : isSavingsOver ? 'bg-emerald-500' : clr.bg}`} style={{ width: `${Math.min(pct, 100)}%` }} />
                               </div>
                             </div>
                           );
@@ -1869,7 +1880,7 @@ export default function App() {
                       currentData.categories?.reduce((s, c) => {
                         if (!c.isSavings) return s;
                         return s + (c.items?.reduce((a, i) => {
-                          return a + (currentData.transactions?.filter(t => t.itemId === i.id).reduce((sum, t) => sum + t.amount, 0) || 0);
+                          return a + (currentData.transactions?.filter(t => String(t.itemId) === String(i.id)).reduce((sum, t) => sum + t.amount, 0) || 0);
                         }, 0) || 0);
                       }, 0) || 0
                     )}
