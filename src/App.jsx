@@ -1110,6 +1110,43 @@ export default function App() {
                 }} className="flex-1 py-3 bg-emerald-500 text-white rounded-xl font-semibold">Save</button>
               </div>
             </>
+          ) : modal === 'logSavings' ? (
+            <>
+              <h3 className="text-xl font-bold mb-2">Log Savings</h3>
+              <p className={`${theme.textMuted} text-sm mb-4`}>Record how much you saved to {modalData.cat?.name}</p>
+              <div className="space-y-3 mb-6">
+                <select value={formData.itemId || ''} onChange={(e) => setFormData({ ...formData, itemId: e.target.value })} className={`w-full px-4 py-3 rounded-xl border ${theme.input}`}>
+                  <option value="">Select savings item...</option>
+                  {modalData.cat?.items?.map(item => (
+                    <option key={item.id} value={item.id}>{item.name} (Planned: {formatCurrency(item.planned)})</option>
+                  ))}
+                </select>
+                <div className="relative">
+                  <DollarSign className={`absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 ${theme.textMuted}`} />
+                  <input type="number" value={formData.amount || ''} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} placeholder="Amount saved" className={`w-full pl-10 pr-4 py-3 rounded-xl border ${theme.input}`} />
+                </div>
+                <input type="text" value={formData.description || ''} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="Note (e.g., End of month savings)" className={`w-full px-4 py-3 rounded-xl border ${theme.input}`} />
+                <input type="date" value={formData.date || getLocalDateString()} onChange={(e) => setFormData({ ...formData, date: e.target.value })} className={`w-full px-4 py-3 rounded-xl border ${theme.input}`} />
+              </div>
+              <div className="flex gap-3">
+                <button onClick={closeModal} className={`flex-1 py-3 border-2 ${theme.border} rounded-xl font-semibold`}>Cancel</button>
+                <button onClick={() => {
+                  if (!formData.amount || !formData.itemId) return;
+                  updateMonthData(data => {
+                    const transactions = [...(data.transactions || [])];
+                    transactions.push({
+                      id: Date.now(),
+                      itemId: parseInt(formData.itemId),
+                      amount: parseFloat(formData.amount),
+                      description: formData.description || 'Savings contribution',
+                      date: formData.date || getLocalDateString(),
+                    });
+                    return { ...data, transactions };
+                  });
+                  closeModal();
+                }} className="flex-1 py-3 bg-emerald-500 text-white rounded-xl font-semibold">Log Savings</button>
+              </div>
+            </>
           ) : null}
           </div>
         </div>
@@ -1511,29 +1548,46 @@ export default function App() {
 
       {/* Quick Add Modal */}
       {showQuickAdd && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center sm:justify-center" onClick={() => setShowQuickAdd(false)}>
-          <div className={`${theme.card} w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl p-6`} onClick={e => e.stopPropagation()}>
-            <h3 className="text-xl font-bold mb-4">Quick Add Transaction</h3>
-            <div className="space-y-3 mb-6">
-              <select value={formData.itemId || ''} onChange={(e) => setFormData({ ...formData, itemId: e.target.value })} className={`w-full px-4 py-3 rounded-xl border ${theme.input}`}>
-                <option value="">Select category...</option>
-                {currentData.categories?.map(cat => (
-                  <optgroup key={cat.id} label={`${cat.icon} ${cat.name}`}>
-                    {cat.items?.map(item => (
-                      <option key={item.id} value={item.id}>{item.name}</option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-              <div className="relative">
-                <DollarSign className={`absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 ${theme.textMuted}`} />
-                <input type="number" value={formData.amount || ''} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} placeholder="Amount" className={`w-full pl-10 pr-4 py-3 rounded-xl border ${theme.input}`} />
-              </div>
-              <input type="text" value={formData.description || ''} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="Description (optional)" className={`w-full px-4 py-3 rounded-xl border ${theme.input}`} />
+        <div className="fixed inset-0 bg-black/50" style={{ zIndex: 10000 }} onClick={() => setShowQuickAdd(false)}>
+          <div 
+            className={`${theme.card} ${theme.text} absolute left-0 right-0 rounded-t-3xl p-6`}
+            style={{ bottom: '70px' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-center mb-2">
+              <div className={`w-10 h-1 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} />
             </div>
+            <h3 className="text-xl font-bold mb-4">Quick Add Transaction</h3>
+            {currentData.categories?.length === 0 ? (
+              <div className="text-center py-4">
+                <p className={theme.textMuted}>No categories set up for this month yet.</p>
+                <p className={`text-sm ${theme.textMuted} mt-2`}>Go to Budget tab to create your budget first.</p>
+              </div>
+            ) : (
+              <div className="space-y-3 mb-6">
+                <select value={formData.itemId || ''} onChange={(e) => setFormData({ ...formData, itemId: e.target.value })} className={`w-full px-4 py-3 rounded-xl border ${theme.input}`}>
+                  <option value="">Select category...</option>
+                  {currentData.categories?.map(cat => (
+                    <optgroup key={cat.id} label={`${cat.icon} ${cat.name}`}>
+                      {cat.items?.map(item => (
+                        <option key={item.id} value={item.id}>{item.name}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                <div className="relative">
+                  <DollarSign className={`absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 ${theme.textMuted}`} />
+                  <input type="number" value={formData.amount || ''} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} placeholder="Amount" className={`w-full pl-10 pr-4 py-3 rounded-xl border ${theme.input}`} />
+                </div>
+                <input type="text" value={formData.description || ''} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="Description (optional)" className={`w-full px-4 py-3 rounded-xl border ${theme.input}`} />
+                <input type="date" value={formData.date || getLocalDateString()} onChange={(e) => setFormData({ ...formData, date: e.target.value })} className={`w-full px-4 py-3 rounded-xl border ${theme.input}`} />
+              </div>
+            )}
             <div className="flex gap-3">
               <button onClick={() => { setShowQuickAdd(false); setFormData({}); }} className={`flex-1 py-3 border-2 ${theme.border} rounded-xl font-semibold`}>Cancel</button>
-              <button onClick={handleSaveTransaction} className="flex-1 py-3 bg-emerald-500 text-white rounded-xl font-semibold">Add</button>
+              {currentData.categories?.length > 0 && (
+                <button onClick={handleSaveTransaction} className="flex-1 py-3 bg-emerald-500 text-white rounded-xl font-semibold">Save</button>
+              )}
             </div>
           </div>
         </div>
@@ -1752,8 +1806,13 @@ export default function App() {
                         })}
                       </div>
                       <div className={`p-3 border-t ${theme.border} flex gap-2`}>
-                        <button onClick={() => openModal('item', { catIdx })} className={`flex-1 py-2.5 ${clr.bg} text-white rounded-xl text-sm font-semibold flex items-center justify-center gap-1`}>
-                          <Plus className="w-4 h-4" /> Add Item
+                        {cat.isSavings && (
+                          <button onClick={() => openModal('logSavings', { catIdx, cat })} className={`flex-1 py-2.5 ${clr.bg} text-white rounded-xl text-sm font-semibold flex items-center justify-center gap-1`}>
+                            <Plus className="w-4 h-4" /> Log Savings
+                          </button>
+                        )}
+                        <button onClick={() => openModal('item', { catIdx })} className={`${cat.isSavings ? 'px-4' : 'flex-1'} py-2.5 ${cat.isSavings ? `border ${theme.border}` : `${clr.bg} text-white`} rounded-xl text-sm font-semibold flex items-center justify-center gap-1`}>
+                          <Plus className="w-4 h-4" /> {cat.isSavings ? 'Item' : 'Add Item'}
                         </button>
                         <button onClick={() => openModal('category', { editing: true, catIdx, initial: { name: cat.name, icon: cat.icon, color: cat.color, isSavings: cat.isSavings } })} className={`px-4 py-2.5 border ${theme.border} rounded-xl`}>
                           <Edit3 className="w-4 h-4" />
@@ -2024,7 +2083,7 @@ export default function App() {
       </div>
 
       {/* Bottom Nav */}
-      <div className={`fixed bottom-0 left-0 right-0 ${theme.card} border-t ${theme.border} z-50`} style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+      <nav className={`fixed bottom-0 left-0 right-0 ${theme.card} border-t ${theme.border}`} style={{ zIndex: 9999, paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <div className="flex justify-around py-2">
           {[
             { id: 'budget', icon: Wallet, label: 'Budget' },
@@ -2037,7 +2096,7 @@ export default function App() {
             </button>
           ))}
         </div>
-      </div>
+      </nav>
     </div>
   );
 }
