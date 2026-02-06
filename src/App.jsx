@@ -79,6 +79,10 @@ const getDaysRemaining = (date) => {
   }
   return getDaysInMonth(date) - now.getDate();
 };
+// Get local date string in YYYY-MM-DD format (avoids timezone issues)
+const getLocalDateString = (date = new Date()) => {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
 
 // Color system
 const colors = {
@@ -180,7 +184,11 @@ const AI_PROMPTS = [
 ];
 
 export default function App() {
-  const [currentMonth, setCurrentMonth] = useState(new Date(2026, 0, 1));
+  // Initialize to actual current month
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
   const [view, setView] = useState('budget');
   const [darkMode, setDarkMode] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -524,14 +532,11 @@ export default function App() {
     const today = new Date();
     const currentMonthKey = getMonthKey(today);
     
-    // Only include completed months (not current month)
+    // Only include completed months for average calculation
     const completedMonths = monthKeys.filter(mk => mk < currentMonthKey);
     
-    if (completedMonths.length === 0) {
-      return { avgSavings: 0, totalSavings: 0, monthCount: 0, monthlyBreakdown: [] };
-    }
-    
-    const monthlyBreakdown = completedMonths.map(mk => {
+    // Calculate savings for all months (including current) for total
+    const allMonthsBreakdown = monthKeys.map(mk => {
       const data = monthlyData[mk];
       if (!data?.categories) return { month: mk, savings: 0 };
       
@@ -547,10 +552,12 @@ export default function App() {
       return { month: mk, savings: savingsSpent };
     });
     
-    const totalSavings = monthlyBreakdown.reduce((s, m) => s + m.savings, 0);
-    const avgSavings = completedMonths.length > 0 ? totalSavings / completedMonths.length : 0;
+    const completedMonthsBreakdown = allMonthsBreakdown.filter(m => m.month < currentMonthKey);
+    const totalSavings = allMonthsBreakdown.reduce((s, m) => s + m.savings, 0);
+    const completedTotal = completedMonthsBreakdown.reduce((s, m) => s + m.savings, 0);
+    const avgSavings = completedMonths.length > 0 ? completedTotal / completedMonths.length : 0;
     
-    return { avgSavings, totalSavings, monthCount: completedMonths.length, monthlyBreakdown };
+    return { avgSavings, totalSavings, monthCount: completedMonths.length, monthlyBreakdown: allMonthsBreakdown };
   }, [monthlyData]);
 
   const updateMonthData = (updater) => {
@@ -640,7 +647,7 @@ export default function App() {
         itemId: parseInt(formData.itemId),
         amount: parseFloat(formData.amount),
         description: formData.description || 'Transaction',
-        date: formData.date || new Date().toISOString().split('T')[0],
+        date: formData.date || getLocalDateString(),
       });
       return { ...data, transactions };
     });
@@ -720,24 +727,32 @@ export default function App() {
     
     // Cut spending / save money
     if (q.includes('cut') || q.includes('save') || q.includes('reduce') || q.includes('spending less')) {
+      // Filter out Fixed and Savings categories for cutting advice
+      const cuttableCategories = getCategoryStats.filter(c => 
+        !c.name.toLowerCase().includes('fixed') && 
+        !c.isSavings
+      );
+      const topCuttable = cuttableCategories[0];
+      
       let advice = `Here are some ways to cut spending based on your budget: 💡\n\n`;
       
-      if (topCategory) {
-        advice += `1. **${topCategory.icon} ${topCategory.name}** is your biggest expense at ${formatCurrency(topCategory.spent)}. `;
-        if (topCategory.name.toLowerCase().includes('food') || topCategory.name.toLowerCase().includes('restaurant')) {
+      if (topCuttable) {
+        advice += `1. **${topCuttable.icon} ${topCuttable.name}** is your biggest variable expense at ${formatCurrency(topCuttable.spent)}. `;
+        if (topCuttable.name.toLowerCase().includes('food') || topCuttable.name.toLowerCase().includes('restaurant')) {
           advice += `Try meal prepping or cooking at home more often.\n\n`;
-        } else if (topCategory.name.toLowerCase().includes('entertainment')) {
+        } else if (topCuttable.name.toLowerCase().includes('entertainment')) {
           advice += `Consider free alternatives like parks, libraries, or free streaming options.\n\n`;
         } else {
-          advice += `Look for ways to reduce this - even a 10% cut would save ${formatCurrency(topCategory.spent * 0.1)}/month.\n\n`;
+          advice += `Look for ways to reduce this - even a 10% cut would save ${formatCurrency(topCuttable.spent * 0.1)}/month.\n\n`;
         }
       }
       
-      if (overBudgetCats.length > 0) {
-        advice += `2. You're over budget on ${overBudgetCats.map(c => `${c.icon} ${c.name}`).join(', ')}. Focus on bringing these back in line first.\n\n`;
+      const overBudgetCuttable = cuttableCategories.filter(c => c.pct > 100);
+      if (overBudgetCuttable.length > 0) {
+        advice += `2. You're over budget on ${overBudgetCuttable.map(c => `${c.icon} ${c.name}`).join(', ')}. Focus on bringing these back in line first.\n\n`;
       }
       
-      const discretionary = getCategoryStats.filter(c => 
+      const discretionary = cuttableCategories.filter(c => 
         c.name.toLowerCase().includes('entertainment') || 
         c.name.toLowerCase().includes('restaurant') || 
         c.name.toLowerCase().includes('coffee') ||
@@ -1028,7 +1043,7 @@ export default function App() {
                   <DollarSign className={`absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 ${theme.textMuted}`} />
                   <input type="number" value={formData.amount || ''} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} placeholder="Amount" className={`w-full pl-10 pr-4 py-3 rounded-xl border ${theme.input}`} />
                 </div>
-                <input type="date" value={formData.date || new Date().toISOString().split('T')[0]} onChange={(e) => setFormData({ ...formData, date: e.target.value })} className={`w-full px-4 py-3 rounded-xl border ${theme.input}`} />
+                <input type="date" value={formData.date || getLocalDateString()} onChange={(e) => setFormData({ ...formData, date: e.target.value })} className={`w-full px-4 py-3 rounded-xl border ${theme.input}`} />
               </div>
               <div className="flex gap-3">
                 <button onClick={closeModal} className={`flex-1 py-3 border-2 ${theme.border} rounded-xl font-semibold`}>Cancel</button>
@@ -1301,13 +1316,40 @@ export default function App() {
         
         <div className="p-4 space-y-4">
           <div className={`${theme.card} rounded-2xl p-4`}>
-            <h3 className="font-bold mb-4">Quick Add</h3>
-            <div className="grid grid-cols-4 gap-2">
-              {[10, 25, 50, 100].map(amt => (
-                <button key={amt} onClick={() => addToGoal(goal.id, amt)} className={`py-3 rounded-xl ${clr.light} ${clr.text} font-semibold ${darkMode ? 'bg-opacity-20' : ''}`}>
-                  +${amt}
-                </button>
-              ))}
+            <h3 className="font-bold mb-4">Add to Savings</h3>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <DollarSign className={`absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 ${theme.textMuted}`} />
+                <input 
+                  type="number" 
+                  placeholder="Enter amount" 
+                  className={`w-full pl-10 pr-4 py-3 rounded-xl border ${theme.input}`}
+                  id={`goal-add-${goal.id}`}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const input = e.target;
+                      const amt = parseFloat(input.value);
+                      if (amt > 0) {
+                        addToGoal(goal.id, amt);
+                        input.value = '';
+                      }
+                    }
+                  }}
+                />
+              </div>
+              <button 
+                onClick={() => {
+                  const input = document.getElementById(`goal-add-${goal.id}`);
+                  const amt = parseFloat(input.value);
+                  if (amt > 0) {
+                    addToGoal(goal.id, amt);
+                    input.value = '';
+                  }
+                }} 
+                className={`px-6 py-3 rounded-xl ${clr.bg} text-white font-semibold`}
+              >
+                Add
+              </button>
             </div>
           </div>
           
@@ -1461,7 +1503,7 @@ export default function App() {
 
       {/* Quick Add FAB */}
       <button
-        onClick={() => setShowQuickAdd(true)}
+        onClick={() => { setFormData({}); setShowQuickAdd(true); }}
         className="fixed bottom-24 right-4 z-30 w-14 h-14 bg-emerald-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-emerald-600 transition-all hover:scale-105"
       >
         <Plus className="w-7 h-7" />
@@ -1762,6 +1804,21 @@ export default function App() {
                   <p className="text-xl font-bold text-emerald-600">{formatCurrency(calculations.savingsPlanned)}</p>
                 </div>
                 <div>
+                  <p className={`text-xs ${theme.textMuted} mb-1`}>This Month (Saved)</p>
+                  <p className="text-xl font-bold text-emerald-600">
+                    {formatCurrency(
+                      currentData.categories?.reduce((s, c) => {
+                        if (!c.isSavings) return s;
+                        return s + (c.items?.reduce((a, i) => {
+                          return a + (currentData.transactions?.filter(t => t.itemId === i.id).reduce((sum, t) => sum + t.amount, 0) || 0);
+                        }, 0) || 0);
+                      }, 0) || 0
+                    )}
+                  </p>
+                </div>
+              </div>
+              <div className={`grid grid-cols-2 gap-4 mt-4 pt-4 border-t ${theme.border}`}>
+                <div>
                   <p className={`text-xs ${theme.textMuted} mb-1`}>Monthly Average</p>
                   <p className="text-xl font-bold text-blue-600">
                     {savingsStats.monthCount > 0 ? formatCurrency(savingsStats.avgSavings) : '—'}
@@ -1770,13 +1827,11 @@ export default function App() {
                     <p className={`text-xs ${theme.textMuted}`}>over {savingsStats.monthCount} month{savingsStats.monthCount !== 1 ? 's' : ''}</p>
                   )}
                 </div>
-              </div>
-              {savingsStats.monthCount > 0 && (
-                <div className={`mt-4 pt-4 border-t ${theme.border}`}>
-                  <p className={`text-xs ${theme.textMuted} mb-2`}>Total Saved (All Time)</p>
-                  <p className="text-2xl font-bold text-emerald-600">{formatCurrency(savingsStats.totalSavings)}</p>
+                <div>
+                  <p className={`text-xs ${theme.textMuted} mb-1`}>Total Saved (All Time)</p>
+                  <p className="text-xl font-bold text-emerald-600">{formatCurrency(savingsStats.totalSavings)}</p>
                 </div>
-              )}
+              </div>
             </div>
 
             {/* Spending Pie Chart */}
