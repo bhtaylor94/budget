@@ -641,14 +641,18 @@ export default function App() {
 
   const handleSaveTransaction = () => {
     if (!formData.amount || !formData.itemId) return;
+    // Use the date from form, or today's date
+    const txnDate = formData.date || getLocalDateString();
+    console.log('Saving transaction with itemId:', formData.itemId, 'type:', typeof formData.itemId);
+    console.log('Current items:', currentData.categories?.flatMap(c => c.items?.map(i => ({ id: i.id, type: typeof i.id, name: i.name }))));
     updateMonthData(data => {
       const transactions = [...(data.transactions || [])];
       transactions.push({
         id: Date.now(),
-        itemId: formData.itemId, // Keep as string/original value, don't parseInt
+        itemId: formData.itemId,
         amount: parseFloat(formData.amount),
         description: formData.description || 'Transaction',
-        date: formData.date || getLocalDateString(),
+        date: txnDate,
       });
       return { ...data, transactions };
     });
@@ -1541,7 +1545,7 @@ export default function App() {
 
       {/* Quick Add FAB */}
       <button
-        onClick={() => { setFormData({}); setShowQuickAdd(true); }}
+        onClick={() => { setFormData({ date: getLocalDateString() }); setShowQuickAdd(true); }}
         className="fixed bottom-24 right-4 z-30 w-14 h-14 bg-emerald-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-emerald-600 transition-all hover:scale-105"
       >
         <Plus className="w-7 h-7" />
