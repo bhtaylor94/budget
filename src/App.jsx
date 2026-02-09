@@ -1571,7 +1571,7 @@ export default function App() {
                   {currentData.categories?.map(cat => (
                     <optgroup key={cat.id} label={`${cat.icon} ${cat.name}`}>
                       {cat.items?.map(item => (
-                        <option key={item.id} value={item.id}>{item.name}</option>
+                        <option key={item.id} value={String(item.id)}>{item.name}</option>
                       ))}
                     </optgroup>
                   ))}
