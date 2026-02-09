@@ -403,7 +403,7 @@ export default function App() {
         if (item.recurring && item.dueDay) {
           // Check if this bill has been paid this month
           const isPaid = currentData.transactions?.some(t => 
-            t.itemId === item.id && t.amount >= item.planned * 0.9
+            String(t.itemId) === String(item.id) && t.amount >= item.planned * 0.9
           );
           
           if (!isPaid) {
@@ -499,7 +499,7 @@ export default function App() {
     return currentData.transactions.map(txn => {
       let itemName = 'Unknown', catName = 'Unknown', icon = '📦', color = 'emerald';
       currentData.categories?.forEach(cat => {
-        const item = cat.items?.find(i => i.id === txn.itemId);
+        const item = cat.items?.find(i => String(i.id) === String(txn.itemId));
         if (item) { itemName = item.name; catName = cat.name; icon = cat.icon; color = cat.color; }
       });
       return { ...txn, itemName, catName, icon, color };
@@ -521,7 +521,7 @@ export default function App() {
       const planned = cat.items?.reduce((s, i) => s + (i.planned || 0), 0) || 0;
       const spent = cat.items?.reduce((s, i) => s + calculations.getItemSpent(i.id), 0) || 0;
       const txnCount = cat.items?.reduce((s, i) => 
-        s + (currentData.transactions?.filter(t => t.itemId === i.id).length || 0), 0) || 0;
+        s + (currentData.transactions?.filter(t => String(t.itemId) === String(i.id)).length || 0), 0) || 0;
       const pct = planned > 0 ? (spent / planned) * 100 : 0;
       return { ...cat, idx, planned, spent, txnCount, pct };
     }).sort((a, b) => b.spent - a.spent) || [];
@@ -641,15 +641,12 @@ export default function App() {
 
   const handleSaveTransaction = () => {
     if (!formData.amount || !formData.itemId) return;
-    // Use the date from form, or today's date
     const txnDate = formData.date || getLocalDateString();
-    console.log('Saving transaction with itemId:', formData.itemId, 'type:', typeof formData.itemId);
-    console.log('Current items:', currentData.categories?.flatMap(c => c.items?.map(i => ({ id: i.id, type: typeof i.id, name: i.name }))));
     updateMonthData(data => {
       const transactions = [...(data.transactions || [])];
       transactions.push({
         id: Date.now(),
-        itemId: formData.itemId,
+        itemId: String(formData.itemId), // Ensure it's stored as string
         amount: parseFloat(formData.amount),
         description: formData.description || 'Transaction',
         date: txnDate,
@@ -1141,7 +1138,7 @@ export default function App() {
                     const transactions = [...(data.transactions || [])];
                     transactions.push({
                       id: Date.now(),
-                      itemId: formData.itemId, // Keep as string/original value
+                      itemId: String(formData.itemId),
                       amount: parseFloat(formData.amount),
                       description: formData.description || 'Savings contribution',
                       date: formData.date || getLocalDateString(),
@@ -1241,7 +1238,7 @@ export default function App() {
     
     const spent = calculations.getItemSpent(item.id);
     const pct = item.planned > 0 ? (spent / item.planned) * 100 : 0;
-    const itemTxns = currentData.transactions?.filter(t => t.itemId === item.id).sort((a, b) => new Date(b.date) - new Date(a.date)) || [];
+    const itemTxns = currentData.transactions?.filter(t => String(t.itemId) === String(item.id)).sort((a, b) => new Date(b.date) - new Date(a.date)) || [];
     const clr = colors[cat.color] || colors.emerald;
     
     return (
@@ -1283,7 +1280,7 @@ export default function App() {
         </div>
         
         <div className="p-4 space-y-4">
-          <button onClick={() => openModal('transaction', { initial: { itemId: item.id, date: new Date().toISOString().split('T')[0] } })} className={`w-full ${clr.bg} text-white py-4 rounded-xl font-semibold flex items-center justify-center gap-2 shadow-lg`}>
+          <button onClick={() => openModal('transaction', { initial: { itemId: String(item.id), date: getLocalDateString() } })} className={`w-full ${clr.bg} text-white py-4 rounded-xl font-semibold flex items-center justify-center gap-2 shadow-lg`}>
             <Plus className="w-5 h-5" /> Add Transaction
           </button>
 
